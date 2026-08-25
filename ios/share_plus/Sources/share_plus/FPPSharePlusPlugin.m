@@ -203,12 +203,34 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
   }
 
   UIImage *image = [UIImage imageWithContentsOfFile:_path];
-  return [self imageWithImage:image scaledToSize:suggestedSize];
+  return [self imageWithImage:image scaledToFitSize:suggestedSize];
 }
 
-- (UIImage *)imageWithImage:(UIImage *)image scaledToSize:(CGSize)newSize {
-  UIGraphicsBeginImageContext(newSize);
-  [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+// Scales [image] to fit inside [maxSize] without altering its aspect ratio.
+//
+// The returned image is the fitted size rather than [maxSize], so a portrait
+// or landscape source is never stretched to fill a square box and no letterbox
+// bars are baked into the result.
+- (UIImage *)imageWithImage:(UIImage *)image scaledToFitSize:(CGSize)maxSize {
+  if (image == nil) {
+    return nil;
+  }
+
+  CGSize size = image.size;
+  if (size.width <= 0 || size.height <= 0 || maxSize.width <= 0 ||
+      maxSize.height <= 0) {
+    return image;
+  }
+
+  CGFloat ratio = MIN(maxSize.width / size.width, maxSize.height / size.height);
+  CGSize target =
+      CGSizeMake(floor(size.width * ratio), floor(size.height * ratio));
+  if (target.width < 1 || target.height < 1) {
+    return image;
+  }
+
+  UIGraphicsBeginImageContextWithOptions(target, NO, image.scale);
+  [image drawInRect:CGRectMake(0, 0, target.width, target.height)];
   UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
   UIGraphicsEndImageContext();
   return newImage;
@@ -252,7 +274,7 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
       UIImage *image = [UIImage imageWithContentsOfFile:_path];
       metadata.imageProvider = [[NSItemProvider alloc]
           initWithObject:[self imageWithImage:image
-                                 scaledToSize:CGSizeMake(120, 120)]];
+                              scaledToFitSize:CGSizeMake(120, 120)]];
     }
   }
 
