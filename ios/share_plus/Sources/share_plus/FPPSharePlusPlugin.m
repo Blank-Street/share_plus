@@ -7,6 +7,13 @@
 
 static NSString *const PLATFORM_CHANNEL = @"dev.fluttercommunity.plus/share";
 
+// Longest edge of the square preview handed to LinkPresentation.
+static const CGFloat kPreviewSize = 1024;
+
+// Where the square preview's crop window sits vertically in the source: 0.5
+// centres it, higher values take it from further down, lifting the subject.
+static const CGFloat kPreviewVerticalBias = 0.62;
+
 static UIViewController *RootViewController(void) {
   if (@available(iOS 13, *)) { // UIApplication.keyWindow is deprecated
     NSSet *scenes = [[UIApplication sharedApplication] connectedScenes];
@@ -203,7 +210,9 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
   }
 
   UIImage *image = [UIImage imageWithContentsOfFile:_path];
-  return [self imageWithImage:image scaledToFillSize:suggestedSize];
+  return [self imageWithImage:image
+                 scaledToFillSize:suggestedSize
+                     verticalBias:0.5];
 }
 
 // Scales [image] to fill [size], centre-cropping whatever overflows.
@@ -211,7 +220,9 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
 // The result is exactly [size], so a square preview slot is filled edge to edge
 // instead of letterboxed, and the source's aspect ratio survives because the
 // excess is cropped rather than squashed.
-- (UIImage *)imageWithImage:(UIImage *)image scaledToFillSize:(CGSize)size {
+- (UIImage *)imageWithImage:(UIImage *)image
+           scaledToFillSize:(CGSize)size
+               verticalBias:(CGFloat)verticalBias {
   if (image == nil) {
     return nil;
   }
@@ -224,15 +235,41 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
 
   CGFloat ratio = MAX(size.width / source.width, size.height / source.height);
   CGSize scaled = CGSizeMake(source.width * ratio, source.height * ratio);
-  CGRect drawRect = CGRectMake((size.width - scaled.width) / 2,
-                               (size.height - scaled.height) / 2, scaled.width,
-                               scaled.height);
+  CGRect drawRect =
+      CGRectMake((size.width - scaled.width) / 2,
+                 (size.height - scaled.height) * verticalBias, scaled.width,
+                 scaled.height);
 
   UIGraphicsBeginImageContextWithOptions(size, NO, image.scale);
   [image drawInRect:drawRect];
   UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
   UIGraphicsEndImageContext();
   return newImage;
+}
+
+// Writes a square crop of the image at [path] to a temporary file, returning
+// its URL, or nil if it cannot be produced.
+- (NSURL *)squarePreviewURLForImageAtPath:(NSString *)path {
+  UIImage *image = [UIImage imageWithContentsOfFile:path];
+  if (image == nil || image.size.width <= 0 || image.size.height <= 0) {
+    return nil;
+  }
+
+  CGFloat side = MIN(kPreviewSize, MAX(image.size.width, image.size.height));
+  UIImage *cropped = [self imageWithImage:image
+                        scaledToFillSize:CGSizeMake(side, side)
+                            verticalBias:kPreviewVerticalBias];
+
+  NSData *data = UIImagePNGRepresentation(cropped);
+  if (data == nil) {
+    return nil;
+  }
+
+  NSString *name = [[[path lastPathComponent] stringByDeletingPathExtension]
+      stringByAppendingString:@"-preview.png"];
+  NSURL *url = [[NSURL fileURLWithPath:NSTemporaryDirectory()]
+      URLByAppendingPathComponent:name];
+  return [data writeToURL:url atomically:YES] ? url : nil;
 }
 
 - (LPLinkMetadata *)activityViewControllerLinkMetadata:
@@ -270,11 +307,14 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
     // https://stackoverflow.com/questions/60563773/ios-13-share-sheet-changing-subtitle-item-description
     metadata.originalURL = [NSURL fileURLWithPath:description];
     if (_mimeType && [_mimeType hasPrefix:@"image/"]) {
-      // Hand over the file rather than a pre-scaled UIImage: LinkPresentation
-      // renders it at whatever resolution the sheet's preview tile wants, which
-      // a fixed-size bitmap of ours cannot anticipate.
+      // Crop to a square ourselves so the framing is ours to choose, but hand
+      // over a *file* rather than a UIImage: LinkPresentation rasterises it at
+      // the preview tile's real size, which a fixed-size bitmap cannot
+      // anticipate.
+      NSURL *previewURL = [self squarePreviewURLForImageAtPath:_path];
       metadata.imageProvider = [[NSItemProvider alloc]
-          initWithContentsOfURL:[NSURL fileURLWithPath:_path]];
+          initWithContentsOfURL:previewURL
+                                    ?: [NSURL fileURLWithPath:_path]];
     }
   }
 
