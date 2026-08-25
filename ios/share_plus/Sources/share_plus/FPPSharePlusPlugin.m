@@ -203,34 +203,33 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
   }
 
   UIImage *image = [UIImage imageWithContentsOfFile:_path];
-  return [self imageWithImage:image scaledToFitSize:suggestedSize];
+  return [self imageWithImage:image scaledToFillSize:suggestedSize];
 }
 
-// Scales [image] to fit inside [maxSize] without altering its aspect ratio.
+// Scales [image] to fill [size], centre-cropping whatever overflows.
 //
-// The returned image is the fitted size rather than [maxSize], so a portrait
-// or landscape source is never stretched to fill a square box and no letterbox
-// bars are baked into the result.
-- (UIImage *)imageWithImage:(UIImage *)image scaledToFitSize:(CGSize)maxSize {
+// The result is exactly [size], so a square preview slot is filled edge to edge
+// instead of letterboxed, and the source's aspect ratio survives because the
+// excess is cropped rather than squashed.
+- (UIImage *)imageWithImage:(UIImage *)image scaledToFillSize:(CGSize)size {
   if (image == nil) {
     return nil;
   }
 
-  CGSize size = image.size;
-  if (size.width <= 0 || size.height <= 0 || maxSize.width <= 0 ||
-      maxSize.height <= 0) {
+  CGSize source = image.size;
+  if (source.width <= 0 || source.height <= 0 || size.width <= 0 ||
+      size.height <= 0) {
     return image;
   }
 
-  CGFloat ratio = MIN(maxSize.width / size.width, maxSize.height / size.height);
-  CGSize target =
-      CGSizeMake(floor(size.width * ratio), floor(size.height * ratio));
-  if (target.width < 1 || target.height < 1) {
-    return image;
-  }
+  CGFloat ratio = MAX(size.width / source.width, size.height / source.height);
+  CGSize scaled = CGSizeMake(source.width * ratio, source.height * ratio);
+  CGRect drawRect = CGRectMake((size.width - scaled.width) / 2,
+                               (size.height - scaled.height) / 2, scaled.width,
+                               scaled.height);
 
-  UIGraphicsBeginImageContextWithOptions(target, NO, image.scale);
-  [image drawInRect:CGRectMake(0, 0, target.width, target.height)];
+  UIGraphicsBeginImageContextWithOptions(size, NO, image.scale);
+  [image drawInRect:drawRect];
   UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
   UIGraphicsEndImageContext();
   return newImage;
@@ -274,7 +273,7 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
       UIImage *image = [UIImage imageWithContentsOfFile:_path];
       metadata.imageProvider = [[NSItemProvider alloc]
           initWithObject:[self imageWithImage:image
-                              scaledToFitSize:CGSizeMake(120, 120)]];
+                             scaledToFillSize:CGSizeMake(120, 120)]];
     }
   }
 
