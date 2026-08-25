@@ -270,10 +270,11 @@ activityTypesForStrings(NSArray<NSString *> *activityTypeStrings) {
     // https://stackoverflow.com/questions/60563773/ios-13-share-sheet-changing-subtitle-item-description
     metadata.originalURL = [NSURL fileURLWithPath:description];
     if (_mimeType && [_mimeType hasPrefix:@"image/"]) {
-      UIImage *image = [UIImage imageWithContentsOfFile:_path];
+      // Hand over the file rather than a pre-scaled UIImage: LinkPresentation
+      // renders it at whatever resolution the sheet's preview tile wants, which
+      // a fixed-size bitmap of ours cannot anticipate.
       metadata.imageProvider = [[NSItemProvider alloc]
-          initWithObject:[self imageWithImage:image
-                             scaledToFillSize:CGSizeMake(120, 120)]];
+          initWithContentsOfURL:[NSURL fileURLWithPath:_path]];
     }
   }
 
